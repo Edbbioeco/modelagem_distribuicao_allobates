@@ -4,15 +4,15 @@ library(gert)
 
 # Selecionando o arquivo ----
 
-gert::git_add("git_comandos.R")
+gert::git_add(list.files(pattern = ".Rmd")) |> as.data.frame()
 
 # Commitando ----
 
-gert::git_commit("Script de comandos de git")
+gert::git_commit("RMarkdowns")
 
 # Pushando ----
 
-gert::git_push(remote = "origin")
+gert::git_push(remote = "origin", force = TRUE)
 
 # Pullando ----
 
