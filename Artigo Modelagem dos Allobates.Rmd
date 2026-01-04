@@ -1,0 +1,2569 @@
+---
+title: "Artigo Modelagem dos Allobates"
+author: "Edson Nilton de Moura SIlva Júnior"
+date: "`r Sys.Date()`"
+output:
+  html_document: 
+    toc: yes
+    number_sections: no
+    fig_caption: yes
+    theme: flatly
+    toc_float:
+      collapsed: yes
+      smooth_scroll: yes
+    fig_width: 10
+    fig_height: 8
+---
+
+<style>
+body {
+text-align: justify;
+font-size: 20px}
+blockquote {
+  background-color: #FAEFA6;
+  padding: 10px;
+  font-size: 14.5px
+}
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.height = 10, fig.width = 12)
+```
+
+# **Packages**
+
+```{r}
+library(tidyverse)
+
+library(dismo)
+
+library(spThin)
+
+library(sdm)
+
+library(usdm)
+
+library(rJava)
+
+library(mapview)
+
+library(terra)
+
+library(raster)
+
+library(tidyterra)
+
+library(sf)
+
+library(sp)
+
+library(geobr)
+
+library(geodata)
+
+library(ggspatial)
+
+library(DT)
+
+library(readxl)
+
+library(patchwork)
+
+library(cowplot)
+
+library(flextable)
+
+library(adehabitatHR)
+```
+
+```{r}
+set.seed(123)
+```
+
+# **Dados**
+
+## Dados de ocorrência 
+
+### *Allobates olfersioides*
+
+```{r}
+olfersioides <- dismo::gbif(genus = "Allobates", 
+                            species = "olfersioides*", 
+                            download = TRUE, 
+                            geo = TRUE, 
+                            removeZeros = TRUE)
+
+olfersioides %>% datatable()
+```
+
+### *Allobates alagoanus*
+
+```{r}
+alagoanus <- dismo::gbif(genus = "Allobates",
+                         species = "alagoanus", 
+                         download = TRUE, 
+                         geo = TRUE, 
+                         removeZeros = TRUE)
+
+alagoanus %>% datatable()
+```
+
+### Dados de literatura e externos
+
+```{r}
+dados_externos <- readxl::read_xlsx("Dados de ocorrencia.xlsx") %>% 
+  as.data.frame()
+
+dados_externos
+
+externos <- dados_externos %>% 
+  dplyr::select(lon, lat) 
+
+externos %>% dplyr::glimpse()
+
+externos
+```
+
+### tratando os dados 
+
+#### Filtrando os dados
+
+```{r}
+olfersioides <- olfersioides %>% 
+  dplyr::select(lon, lat) %>%
+  dplyr::filter(lat > -18.33) %>%
+  unique()
+
+olfersioides
+```
+
+```{r}
+alagoanus <- alagoanus %>% 
+  dplyr::select(lon, lat) %>%
+  dplyr::filter(lat > -18.33) %>%
+  unique()
+
+alagoanus
+```
+
+#### Unificando os dados
+
+```{r}
+allobates <- rbind(olfersioides, alagoanus, externos) %>% 
+  unique()
+
+allobates <- allobates[-c(4),]
+
+allobates
+```
+
+#### Removendo autocorrelação espacial
+
+```{r, fig.height=8, fig.width=10}
+allobates_tratado <- allobates %>% 
+  dplyr::mutate(SPEC = "Allobates olfersioides",
+         LAT = lat, LONG = lon) %>% 
+  dplyr::select(3:5)
+
+allobates_tratado
+
+allobates_tratado %>% thin(thin.par = 1, out.dir = here::here(), reps = 34)
+
+allobates_thin_df <- read_csv("thinned_data_thin1_new_new_new_new_new.csv") %>% 
+  dplyr::select(where(is.numeric)) %>% 
+  dplyr::mutate(lon = LONG,
+                lat = LAT) %>% 
+  dplyr::select(c(3:4))
+
+allobates_thin_df
+```
+
+#### Transformando os dados
+
+```{r, fig.height=8, fig.width=10}
+allobates_thin_sf <- allobates_thin_df %>% 
+  sf::st_as_sf(coords = c("lon", "lat"))
+
+allobates_thin_sf |> class()
+
+allobates_thin_sf %>% plot()
+```
+
+## Dados Ambientais 
+
+### Variáveis climáticas
+
+```{r, fig.height=8, fig.width=10}
+# bioclim <- geodata::worldclim_country(country = "Brazil", res = 0.5,  path = here::here(), var = "bio")
+
+bioclim <- terra::rast("climate/wc2.1_country/BRA_wc2.1_30s_bio.tif")
+
+names(bioclim) <- c(paste0("Bio 0", 01:09), paste0("Bio ", 10:19))
+
+plotar_mapas <- function(x){
+  
+  ggplot() +
+  geom_spatraster(data = bioclim[[x]]) +
+  facet_wrap(~lyr) +
+  scale_fill_viridis_c(option = "turbo",
+                       na.value = "transparent")
+  
+}
+
+purrr::map(1:19, plotar_mapas)
+```
+
+### Shapefiles 
+
+#### Unidades de conservação
+
+```{r, fig.height=8, fig.width=10}
+uc <- geobr::read_conservation_units() %>% 
+  sf::st_make_valid()
+
+uc %>% 
+  ggplot() +
+  geom_sf()
+```
+
+#### Mata Atlântica
+
+```{r, fig.height=8, fig.width=10}
+ma <- geobr::read_biomes() %>% 
+  dplyr::filter(name_biome == "Mata Atlântica")
+
+ma %>% 
+  ggplot() +
+  geom_sf()
+```
+
+#### Estados
+
+```{r, fig.height=8, fig.width=10}
+estados_brasil <- geobr::read_state()
+
+estados_nordeste <- geobr::read_state() %>% 
+  dplyr::filter(name_region == "Nordeste")
+
+estados_brasil %>% 
+  ggplot() +
+  geom_sf()
+
+estados_nordeste %>% 
+  ggplot() +
+  geom_sf()
+```
+
+#### Região Nordeste
+
+```{r, fig.height=8, fig.width=10}
+nordeste <- raster::shapefile("Região Nordeste.shp")
+
+nordeste <- spTransform(nordeste, crs(bioclim[[2]]))
+
+nordeste %>% 
+  plot()
+
+nordeste_sf <- geobr::read_region(year = 2019) %>% 
+  dplyr::filter(name_region == "Nordeste")
+
+nordeste_sf %>% 
+  ggplot() +
+  geom_sf()
+```
+
+#### Território brasileiro
+
+```{r, fig.height=8, fig.width=10}
+brasil <- sf::read_sf("BR_Pais_2021.shp")
+
+brasil %>% 
+  ggplot() +
+  geom_sf()
+```
+
+#### Continentes
+
+```{r}
+continentes <- sf::st_read("World_Continents.shp")
+
+continentes %>% 
+  ggplot() +
+  geom_sf()
+```
+
+### Inclinação do terreno 
+
+#### Altitude do terreno
+
+```{r, fig.height=8, fig.width=10}
+alt <- geodata::elevation_30s(country = "BRA", path = here::here()) %>% 
+  raster::raster()
+
+ggplot() +
+  tidyterra::geom_spatraster(data = alt %>% terra::rast(), na.rm = TRUE) +
+  scale_fill_viridis_c(option = "turbo",
+                       na.value = "transparent")
+```
+
+#### Inclinação
+
+```{r, fig.height=10, fig.width=12}
+inclinacao <- alt %>% terra::terrain(v = "slope", unit = "degrees")
+
+ggplot() +
+  tidyterra::geom_spatraster(data = inclinacao %>% terra::rast()) +
+  scale_fill_viridis_c(option = "turbo",
+                       na.value = "transparent")
+```
+
+### Unificando os dados
+
+#### Criando um raster no formato raster::raster()
+
+```{r}
+for(i in 1:19){
+  
+  nome_raster <- bioclim[[i]] %>% 
+    names()
+  
+  raster_ind <- bioclim[[i]] %>% 
+    raster::raster()
+  
+  assign(nome_raster, raster_ind)
+  
+}
+
+bioclim2 <- ls(pattern = "Bio ") %>% 
+  lapply(get) %>% 
+  raster::stack()
+
+names(bioclim2) <- names(bioclim2) %>% 
+  stringr::str_replace("\\.", "")
+
+bioclim2
+
+plotar_mapas_2 <- function(x){
+  
+  ggplot() +
+  geom_spatraster(data = bioclim2[[x]] %>% terra::rast()) +
+  facet_wrap(~lyr) +
+  scale_fill_viridis_c(option = "turbo",
+                       na.value = "transparent")
+  
+}
+
+purrr::map(1:19, plotar_mapas_2)
+```
+
+#### Recortando os dados para o Nordeste
+
+```{r, fig.height=8, fig.width=10}
+bioclim_crop <- raster::crop(bioclim2, nordeste) %>% 
+  raster::mask(nordeste)
+
+inclinacao_crop <- terra::crop(inclinacao, nordeste) %>% 
+  raster::mask(nordeste)
+
+ggplot() +
+  geom_spatraster(data = bioclim_crop %>% terra::rast()) +
+  facet_wrap(~ lyr) +
+  geom_point(data = allobates_thin_df %>% data.frame(), 
+             aes(lon, lat), 
+             shape = 21,
+             fill = "lightyellow",
+             color = "black",
+             size = 1) +
+  scale_fill_viridis_c(option = "turbo",
+                       na.value = "transparent")
+
+ggplot() +
+  geom_spatraster(data = inclinacao %>% terra::rast()) +
+  geom_point(data = allobates_thin_df %>% data.frame(), 
+             aes(lon, lat), 
+             shape = 21,
+             fill = "lightyellow",
+             color = "black",
+             size = 1) +
+  labs(fill = "inclinacao") +
+  scale_fill_viridis_c(option = "turbo",
+                       na.value = "transparent")
+```
+
+### Dados de índice de vegetação (EVI) 
+
+#### Importando os dados
+
+```{r, fig.height=8, fig.width=10}
+evi <- raster::raster("evi_indice.tif")
+
+evi <- evi / 10000
+
+ggplot() +
+  tidyterra::geom_spatraster(data = evi %>% terra::rast()) +
+  scale_fill_whitebox_c(direction = -1)
+```
+
+#### Recortando a malha
+
+```{r, fig.height=8, fig.width=10}
+evi_crop <- raster::crop(evi, nordeste) %>% 
+  raster::mask(nordeste)
+
+ggplot() +
+  tidyterra::geom_spatraster(data = evi_crop %>% terra::rast()) +
+  geom_point(data = allobates_thin_df %>% data.frame(), 
+             aes(lon, lat), 
+             shape = 21,
+             fill = "lightyellow",
+             color = "black",
+             size = 5) +
+  labs(fill = "inclinacao") +
+  scale_fill_whitebox_c(direction = -1)
+```
+
+#### Alterando a resolução da malha
+
+```{r, fig.height=8, fig.width=10}
+evi_crop <- resample(evi_crop, bioclim_crop, method = "ngb")
+
+ggplot() +
+  geom_spatraster(data = evi_crop %>% terra::rast()) +
+  scale_fill_whitebox_c(direction = -1)
+
+bioclim_crop %>% extent()
+
+evi_crop %>% extent()
+
+# Definir a nova extensão do raster
+
+limite_lon <- c(-48.75833, -32.39167)
+limite_lat <- c(-18.35, -1.041667)
+
+nova_extensao <- extent(limite_lon, limite_lat)
+
+# Reorganizar a extensão do raster
+evi_crop <- crop(evi_crop, nova_extensao)
+
+ggplot() +
+  geom_spatraster(data = evi_crop %>% terra::rast()) +
+  scale_fill_whitebox_c(direction = -1)
+
+evi_crop %>% extent()
+```
+
+### Unificando as malhas ambientais
+
+```{r, fig.height=8, fig.width=10}
+bioclim_crop$EVI <- evi_crop
+
+bioclim_crop$Inclinacao <- inclinacao_crop
+
+names(bioclim_crop) <- c(paste0("Bio", 01:09), 
+                         paste0("Bio", 10:19), 
+                         "EVI", 
+                         "Inclinação")
+
+ggplot() +
+  geom_spatraster(data = bioclim_crop %>% terra::rast()) +
+  facet_wrap(~ lyr) +
+  scale_fill_viridis_c(option = "turbo",
+                       na.value = "transparent")
+```
+
+# **Modelagem**
+
+## Extraindo os valores
+
+```{r}
+extract_data <- terra::extract(bioclim_crop, allobates_thin_sf)
+
+extract_data[extract_data %>% is.na()] <- 0
+
+extract_data
+```
+
+## Testando a colinearidade
+
+### Colinearidade
+
+```{r, fig.height = 10, fig.width = 12}
+nomes_colunas <- extract_data %>% colnames()
+
+nomes_colunas[nomes_colunas == "Inclinação"] <- "Slope"
+
+nomes_colunas
+
+extract_data_2 <- extract_data
+
+colnames(extract_data_2) <- nomes_colunas
+
+matrix_cor <- extract_data_2 %>% 
+  cor(method = "spearman") 
+
+matrix_cor[upper.tri(matrix_cor)] <- NA
+
+matrix_cor %>%
+  reshape2::melt(na.rm = TRUE) %>% 
+  dplyr::mutate(`Spearman's Correlation Index` = value %>% round(2)) %>% 
+  dplyr::select(-3) %>% 
+  ggplot(aes(Var1, Var2, fill = `Spearman's Correlation Index`, label = `Spearman's Correlation Index`)) +
+  geom_tile(color = "black", linewidth = 0.5) +
+  geom_text(color = "black") +
+  scale_fill_viridis_c(breaks = seq(-1, 1, 0.25), limits = c(-1, 1)) + 
+  guides(fill = guide_colorbar(barwidth = 30, 
+                               barheight = 2,
+                               title.position = "top",
+                               frame.colour = "black",
+                               frame.linewidth = 1,
+                               ticks.colour = "black",
+                               ticks.linewidth = 1)) +
+  theme(axis.text = element_text(size = 15, color = "black"),
+        axis.text.x = element_text(angle = 90, vjust = 0.5),
+        axis.title = element_blank(),
+        panel.background = element_rect(color = "black", fill = "white"),
+        legend.position = "bottom",
+        legend.title = element_text(color = "black", size = 15, hjust = 0.5),
+        legend.text = element_text(color = "black", size = 15, hjust = 0.5),
+        panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.45))
+
+
+ggsave(filename = "autocorrelacao.png", height = 10, width = 12)
+```
+
+### Excluindo
+
+```{r, fig.height=8, fig.width=10}
+bioclim_tratado <- bioclim_crop[[c(9, 14, 13, 16, 19, 20, 21)]]
+
+ggplot() +
+  tidyterra::geom_spatraster(data = bioclim_tratado %>% terra::rast()) +
+  facet_wrap(~ lyr) +
+  scale_fill_viridis_c(option = "turbo",
+                       na.value = "transparent")
+```
+
+## Modelagem
+
+### Criando os modelos 
+
+```{r}
+eval <- ENMeval::ENMevaluate(occ = allobates_thin_df, # dados de ocorrencia, com apenasinformações de lon e lat
+                             env = bioclim_tratado, # rasters preditores
+                             method = "jackknife", # método de avaliação
+                             algorithm = "maxent.jar", # modelo maxent
+                             fc = c("L", "Q", "P"), # recurso linear, quadratrico e produto
+                             RMvalues = seq(0.5, 5, 0.5), # multiplicadores de regularização
+                             numCores = 10)
+```
+
+### Selecionando os 5 melhores modelos
+
+```{r}
+valores <- eval@results %>%
+  tibble::rownames_to_column() %>%
+  dplyr::arrange(avg.test.AUC %>% desc(), avg.test.orMTP) %>%
+  dplyr::slice_head(n = 5) %>%
+  dplyr::pull(rowname) %>%
+  as.numeric()
+
+valores
+```
+
+### Criando as predições
+
+```{r}
+predicoes <- function(x){
+
+  nome_modelo <- paste0("modelo_predict_", x)
+
+  raster_predict <- raster::predict(bioclim_tratado, # rasters preditores
+                                    eval@models[[x]])
+
+  assign(nome_modelo, raster_predict, envir = globalenv())
+  
+  ggplot_raster <- ggplot() +
+    tidyterra::geom_spatraster(data = raster_predict %>% terra::rast()) +
+    scale_fill_viridis_c(option = "turbo",
+                         na.value = "transparent") +
+    labs(title = nome_modelo)
+  
+  plot(ggplot_raster)
+
+}
+
+purrr::walk(valores, predicoes)
+```
+
+### AUC e TSS
+
+#### AUC
+
+```{r}
+auc <- eval@results %>%
+  tibble::rownames_to_column() %>%
+  dplyr::arrange(avg.test.AUC %>% desc(), avg.test.orMTP) %>%
+  dplyr::slice_head(n = 5) %>% 
+  dplyr::select(rowname, avg.test.AUC)
+
+auc
+```
+
+#### TSS
+
+```{r}
+threshold <- 0.5
+pred_binary <- modelo_predict_3 >= 0.5
+pred_binary %>% plot()
+
+eval@occ.pts
+observed <- c(...)
+
+# Calcular a matriz de confusão
+pred_values <- extract(modelo_predict_3, allobates_thin_sf)
+
+# Aplicar o threshold para criar predições binárias
+pred_binary <- ifelse(pred_values >= 0.5, 1, 0)
+
+# Os dados observados são sempre 1 para presenças
+observed <- rep(1, length(pred_binary))
+
+# Criar a matriz de confusão
+confusion_matrix <- table(Predicted = pred_binary, Observed = observed)
+
+if ("0" %in% rownames(confusion_matrix) && "0" %in% colnames(confusion_matrix)) {
+    specificity <- confusion_matrix["0", "0"] / sum(confusion_matrix[, "0"], na.rm = TRUE)
+} else {
+    specificity <- 0  # Ou NA, dependendo de como você quer lidar com a ausência de dados
+}
+
+
+# Calcular sensibilidade e especificidade
+sensitivity <- confusion_matrix["1", "1"] / sum(confusion_matrix[, "1"], na.rm = TRUE)
+specificity <- confusion_matrix["0", "0"] / sum(confusion_matrix[, "0"], na.rm = TRUE)
+
+# Calcular o TSS
+TSS <- sensitivity + specificity - 1
+
+# Exibir o TSS
+print(TSS)
+
+eval1 <- eval
+
+class(eval1) <- "sdmModels"
+
+eval1 %>% sdm::getVarImp()
+```
+
+### Criando o objeto `sdmData`
+
+```{r}
+allobates_thin_df2 <- allobates_thin_df
+
+allobates_thin_df2$allobates_thin_df2 <- 1
+
+coordinates(allobates_thin_df2) <- c("lon", "lat")
+
+proj4string(allobates_thin_df2) <- raster::raster() %>% raster::projection()
+
+allobates_thin_df2 |> class()
+
+allobates_thin_df2 %>% plot()
+
+sdmdata <- sdm::sdmData(allobates_thin_df2 ~ .,
+                        allobates_thin_df2,
+                        predictors = bioclim_tratado %>% raster::stack(),
+                        bg = list(method = "gRandom", n = 1000)); set.seed(123)
+
+sdmdata
+```
+
+### Modelagem para o `MaxEnt` ajustado
+
+```{r}
+regularization_values <- seq(0.5, 5, by = 0.5)
+
+feature_classes <- c('L', 'Q', 'P')
+
+# Criar uma lista para armazenar os modelos
+model_list <- list()
+
+# Loop para criar modelos com diferentes configurações
+for (reg in regularization_values) {
+  for (fc in feature_classes) {
+    model <- sdm(allobates_thin_df2~., 
+                 data = sdmdata, 
+                 methods = 'maxent',
+                 modelSettings = list(
+                   regularization_multiplier = 0.5,
+                   feature_classes = "L"
+                 ),
+                 replication ='cv', 
+                 cv.folds = 5,
+                 test.p = 25,
+                 pseudo.absence.methods = "gRandom", 
+                 pseudo.absence.n = 10000)
+    
+    model_list[[paste("reg", reg, "fc", fc, sep = "_")]] <- model
+  }
+}
+
+# Avaliar os modelos e selecionar os melhores
+
+evaluation_results <- lapply(model_list, function(model) {
+  getEvaluation(model, stat=c('AUC', 'TSS', 'OR'))
+})
+
+evaluation_df <- do.call(rbind, lapply(names(evaluation_results), function(name) {
+  eval_result <- evaluation_results[[name]]
+  
+  # Verifique se as métricas estão disponíveis, caso contrário, substitua por NA
+  AUC <- ifelse(length(eval_result$AUC) > 0, eval_result$AUC, NA)
+  TSS <- ifelse(length(eval_result$TSS) > 0, eval_result$TSS, NA)
+  OR <- ifelse(length(eval_result$OR) > 0, eval_result$OR, NA)
+  
+  data.frame(Model=name, AUC=AUC, TSS=TSS, OR=OR)
+}))
+
+evaluation_df %>% 
+  dplyr::mutate(modelo = 1:30) %>%
+  dplyr::arrange(AUC %>% dplyr::desc()) %>% 
+  dplyr::slice_max(AUC, n = 5)
+
+evaluation_df %>% 
+  dplyr::mutate(modelo = 1:30) %>%
+  dplyr::arrange(AUC %>% dplyr::desc()) %>% 
+  dplyr::slice_max(AUC, n = 5) %>% 
+  dplyr::summarise(AUC_media = AUC %>% mean() %>% round(2),
+                   AUC_sd = AUC %>% sd() %>% round(2),
+                   TSS_media = TSS %>% mean() %>% round(2),
+                   TSS_sd = TSS %>% sd() %>% round(2))
+
+valores <- evaluation_df %>% 
+  dplyr::mutate(modelo = 1:30) %>% 
+  dplyr::slice_max(AUC, n = 5) %>% 
+  dplyr::pull(5)
+
+valores
+```
+
+### Gerando o ensemble
+
+```{r}
+predicoes <- function(valores){
+  
+  predict <- predict(model_list[[valores]],
+                     newdata = bioclim_tratado,
+                     filename = paste0("maxent_modelo", valores, ".tif"),
+                     overwrite = TRUE)
+  
+  esnmb <- sdm::ensemble(model_list[[13]],
+                         newdata = predict,
+                         setting = list(method = 'weighted',
+                                        stat = 'AUC'),
+                         overwrite = TRUE)
+  
+  assign(paste0("ensemble_", valores), esnmb, envir = globalenv())
+  
+}
+
+purrr::walk(valores, predicoes)
+
+ensembled <- raster::stack(ensemble_24 %>% raster::raster(), 
+                           ensemble_7 %>% raster::raster(),
+                           ensemble_30 %>% raster::raster(), 
+                           ensemble_26 %>% raster::raster(),
+                           ensemble_19 %>% raster::raster()) %>% 
+  raster::calc(fun = mean) %>% 
+  terra::rast()
+
+ensembled %>% 
+  plot()
+```
+
+### ggplot 
+
+#### Inset map
+
+```{r}
+inset_map <- ggplot() +
+  geom_sf(data = continentes,
+          color = "black", fill = "gray40") +
+  geom_sf(data = estados_brasil, color = "black") +
+  tidyterra::geom_spatraster(data = ensembled) +
+  scale_fill_viridis_c(na.value = NA) +
+  geom_sf(data = estados_brasil %>% dplyr::filter(code_region == 2), color = "black", fill = NA) +
+  geom_rect(aes(xmin = -34, xmax = -49, ymin = -18.5, ymax = -1), color = "red", fill = "red", alpha = 0.4, linewidth = 0.85) +
+  coord_sf(xlim = c(-80, -35), ylim = c(-55, 12)) +
+  theme(panel.background = element_rect(fill = NA, color = "black"), 
+        plot.background = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        legend.position = "none")
+
+inset_map
+```
+
+#### Gerando o ggplot
+
+```{r}
+ma_tratado <- ma %>% 
+  sf::st_intersection(nordeste_sf)
+
+gg_modelo <- ggplot() +
+  geom_sf(data = estados_brasil, color = "black") +
+  tidyterra::geom_spatraster(data = ensembled) +
+  geom_sf(data = estados_nordeste, color = "black", fill = NA, linewidth = 0.5) +
+  geom_sf(data = ma_tratado, aes(color = "Atlantic Forest"), fill = NA, linewidth = 0.85) +
+  scale_fill_viridis_c(limits = c(0, 1), na.value = NA) +
+  scale_color_manual(values = c("Atlantic Forest" = "orangered")) +
+  coord_sf(xlim = c(-48.75, -32.375), ylim = c(-18.33333, -1.041667)) +
+  guides(fill = guide_colorbar(barwidth = 1.5, 
+                               barheight = 15,
+                               title.position = "top",
+                               title.hjust = 0.5,
+                               frame.colour = "black",
+                               frame.linewidth = 1,
+                               ticks.colour = "black",
+                               ticks.linewidth = 1)) +
+  labs(x = NULL, 
+       y = NULL,
+       colour = NULL,
+       fill = "Suitability") +
+  ggspatial::annotation_scale(location = "br", height = unit(0.3,"cm"), bar_cols = c("black", "white")) +
+  theme(plot.title = ggtext::element_markdown(color = "black", size = 15, hjust = 0.5),
+          axis.text = element_text(color = "black", size = 12),
+          axis.title = element_text(color = "black", size = 10),
+          panel.grid = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.ontop = T,
+          axis.line = element_blank(),
+          plot.background = element_rect(fill = "white", color = "white"),
+          panel.background = element_rect(fill = NA, color = "black"),
+          panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.45),
+          legend.key = element_rect(color = NULL, fill = NULL),
+          legend.title = element_text(hjust = 0.5, size = 15),
+          legend.text = element_text(size = 12, color = "black"),
+          legend.position = c(0.925, 0.05),
+          legend.justification = c(1, 0),
+          strip.background = element_rect(colour = "black", fill = "gray90"),
+          strip.text.x = element_text(size = 13))
+
+gg_modelo %>% 
+  cowplot::ggdraw() +
+  cowplot::draw_plot(inset_map,
+                     x = 0.667,
+                     y = 0.7,
+                     width = 0.3,
+                     height = 0.3)
+
+
+ggsave(filename = "modelo2_allobates.png", height = 10, width = 12)
+```
+
+# **Avaliações do modelo**
+
+## Histograma de predição 
+
+### Avaliação dos quartos
+
+```{r}
+cont <- ensembled %>% 
+  as.data.frame(xy = TRUE) %>% 
+  dplyr::count() %>% 
+  dplyr::pull()
+
+cont
+
+# 1º quarto
+
+q_1 <- ensembled %>% 
+  as.data.frame(xy = TRUE) %>% 
+  dplyr::filter(layer < 0.25) %>%
+  dplyr::count() %>% 
+  dplyr::pull()
+
+q_1
+
+q1 <- (q_1 * 100) / cont
+
+# 2º quarto
+
+q_2 <- ensembled %>% 
+  as.data.frame(xy = TRUE) %>% 
+  dplyr::filter(layer >= 0.25 & layer < 0.5) %>%
+  dplyr::count() %>% 
+  dplyr::pull()
+
+q_2
+
+q2 <- (q_2 * 100) / cont
+
+# 3º quarto
+
+q_3 <- ensembled %>% 
+  as.data.frame(xy = TRUE) %>% 
+  dplyr::filter(layer >= 0.5 & layer < 0.75) %>%
+  dplyr::count() %>% 
+  dplyr::pull()
+
+q_3
+
+q3 <- (q_3 * 100) / cont
+
+# 4º quarto
+
+q_4 <- ensembled %>% 
+  as.data.frame(xy = TRUE) %>% 
+  dplyr::filter(layer >= 0.75) %>%
+  dplyr::count() %>% 
+  dplyr::pull()
+
+q_4
+
+q4 <- (q_4 * 100) / cont 
+```
+
+#### Graficando
+
+```{r, fig.height=10, fig.width=12}
+distri_prob <- tibble::tibble(`Area representatiom` = c("<25%", ">=25% & <50%", ">=50% & <75%", ">=75%"),
+                              `Background Area Representation (%)` = c(q1 %>% round(3), q2 %>% round(3), q3 %>% round(3), q4 %>% round(3)))
+
+distri_prob
+
+distri_prob %>% 
+  ggplot(aes(`Area representatiom`, `Background Area Representation (%)`, group = 1)) +
+  scale_y_continuous(breaks = seq(0, 100, 10)) +
+  geom_line(color = "blue", size = 1) +
+  geom_label(aes(label = `Background Area Representation (%)`), size = 4) +
+  theme(plot.title = ggtext::element_markdown(color = "black", size = 15, hjust = 0.5),
+          axis.text = element_text(color = "black", size = 12),
+          axis.title = element_text(color = "black", size = 15),
+          panel.grid = element_line(color = "grey75", linetype = "dashed", linewidth = 0.7),
+          panel.grid.minor = element_blank(),
+          axis.line = element_blank(),
+          plot.background = element_rect(fill = "white", color = "white"),
+          panel.background = element_rect(fill = "white"),
+          panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.5),
+          legend.key = element_rect(color = "white", fill = "white"),
+          legend.position = "bottom",
+          strip.background = element_rect(colour = "black", fill = "gray90"),
+          strip.text.x = element_text(size = 13))
+```
+
+### Histograma de Predição
+
+```{r, fig.height=8, fig.width=10}
+ensembled %>% 
+  as.data.frame(xy = TRUE) %>% 
+  ggplot(aes(layer)) +
+  geom_histogram(color = "black") +
+  labs(y = "Pixels count") +
+  theme(plot.title = ggtext::element_markdown(color = "black", size = 15, hjust = 0.5),
+          axis.text = element_text(color = "black", size = 12),
+          axis.title = element_text(color = "black", size = 15),
+          panel.grid = element_line(color = "grey75", linetype = "dashed", linewidth = 0.7),
+          panel.grid.minor = element_blank(),
+          axis.line = element_blank(),
+          plot.background = element_rect(fill = "white", color = "white"),
+          panel.background = element_rect(fill = "white"),
+          panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.5),
+          legend.key = element_rect(color = "white", fill = "white"),
+          legend.position = "bottom",
+          strip.background = element_rect(colour = "black", fill = "gray90"),
+          strip.text.x = element_text(size = 13))
+
+ggsave(filename = "histograma_predição.png", height = 10, width = 12)
+```
+### Unificando os Gráficos
+
+```{r, fig.height=8, fig.width=10}
+g_1 <- ensembled %>% 
+  as.data.frame(xy = TRUE) %>% 
+  ggplot(aes(layer)) +
+  geom_histogram(color = "black") +
+  labs(y = "Pixels count") +
+  theme(plot.title = ggtext::element_markdown(color = "black", size = 15, hjust = 0.5),
+          axis.text = element_text(color = "black", size = 12),
+          axis.title = element_text(color = "black", size = 15),
+          panel.grid = element_line(color = "grey75", linetype = "dashed", linewidth = 0.7),
+          panel.grid.minor = element_blank(),
+          axis.line = element_blank(),
+          plot.background = element_rect(fill = "white", color = "white"),
+          panel.background = element_rect(fill = "white"),
+          panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.5),
+          legend.key = element_rect(color = "white", fill = "white"),
+          legend.position = "bottom",
+          strip.background = element_rect(colour = "black", fill = "gray90"),
+          strip.text.x = element_text(size = 13))
+
+g_2 <- distri_prob %>% 
+  ggplot(aes(`Area representatiom`, `Background Area Representation (%)`, group = 1)) +
+  scale_y_continuous(breaks = seq(0, 100, 10)) +
+  geom_line(color = "blue", size = 1) +
+  geom_label(aes(label = `Background Area Representation (%)`), size = 4) +
+  theme(plot.title = ggtext::element_markdown(color = "black", size = 15, hjust = 0.5),
+          axis.text = element_text(color = "black", size = 12),
+          axis.title = element_text(color = "black", size = 15),
+          panel.grid = element_line(color = "grey75", linetype = "dashed", linewidth = 0.7),
+          panel.grid.minor = element_blank(),
+          axis.line = element_blank(),
+          plot.background = element_rect(fill = "white", color = "white"),
+          panel.background = element_rect(fill = "white"),
+          panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.5),
+          legend.key = element_rect(color = "white", fill = "white"),
+          legend.position = "bottom",
+          strip.background = element_rect(colour = "black", fill = "gray90"),
+          strip.text.x = element_text(size = 13))
+
+g_2 + g_1 + patchwork::plot_layout(ncol = 1) + plot_annotation(tag_levels = 'a') & theme(plot.tag = element_text(size = 30, face = "bold"))
+
+ggsave(filename = "histograma_unidos.png", height = 12, width = 10)
+```
+
+## Curva ROC
+
+```{r, fig.height=8, fig.width=10}
+
+roc_curva <- function(valores){
+  
+  roc <- sdm::roc(model_list[[valores]])
+  
+  roc
+  
+}
+
+purrr::walk(valores, roc_curva)
+```
+
+## Importância das variáveis
+
+```{r, fig.height=8, fig.width=10}
+for(i in valores){
+  
+  modelo <- model_list[[valores]]
+  
+  imp_var <- sdm::getVarImp(modelo)
+  
+  print(imp_var)
+  
+}
+
+sdm::getVarImp(model_list[[13]])
+variaveis_importancia <- function(valores){
+  
+  var_importancia <- sdm::getVarImp(model_list[[valores]]) %>% plot() 
+  
+  gg_var_imp <- var_importancia$data
+  
+  gg_var_imp <- gg_var_imp %>% 
+    arrange(corTest %>% desc())
+  
+  levels <- gg_var_imp$variables
+  
+  gg_var_imp <- gg_var_imp %>% 
+    mutate(variables = factor(variables, levels = levels %>% rev()),
+           modelo = paste0("modelo ", valores))
+  
+  assign(paste0("var_imp_df_", valores), gg_var_imp, env = globalenv())
+  
+}
+
+purrr::walk(valores, variaveis_importancia)
+
+var_imp_df <- dplyr::bind_rows(var_imp_df_13, 
+                               var_imp_df_14,
+                               var_imp_df_5,
+                               var_imp_df_25, 
+                               var_imp_df_26) %>% 
+  dplyr::mutate(modelo = modelo %>% factor(levels = paste0("modelo ", valores)),
+                variables = dplyr::case_when(variables == "Inclinação" ~ "Slope",
+                                             variables == "Bio9" ~ "Bio09",
+                                             .default = variables),
+                variables = variables %>% forcats::fct_relevel(c("Bio14", "Bio19", "Bio09", "EVI", "Slope", "Bio13", "Bio16") %>% rev()),
+                corTest = corTest %>% round(3))
+
+var_imp_df
+
+var_imp_df %>% 
+  ggplot(aes(corTest, variables)) +
+  geom_col(color = "black", fill = "grey65") +
+  geom_label(aes(corTest, variables, label = corTest), fill = "grey65") +
+  labs(y = "Predictors",
+       x = "Model response") +
+  scale_x_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) +
+  facet_wrap(~ modelo) +
+  theme(plot.title = ggtext::element_markdown(color = "black", size = 15, hjust = 0.5),
+          axis.text = element_text(color = "black", size = 12),
+          axis.title = element_text(color = "black", size = 15),
+          panel.grid = element_line(color = "grey75", linetype = "dashed", linewidth = 0.7),
+          panel.grid.minor = element_blank(),
+          axis.line = element_blank(),
+          plot.background = element_rect(fill = "white", color = "white"),
+          panel.background = element_rect(fill = "white"),
+          panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.5),
+          legend.key = element_rect(color = "white", fill = "white"),
+          legend.position = "bottom",
+          strip.background = element_rect(colour = "black", fill = "gray90"),
+          strip.text.x = element_text(size = 13))
+
+ggsave(filename = "variaveis_importância2.png", height = 10, width = 12)
+```
+
+## Curva de resposta
+
+```{r, fig.height=8, fig.width=10}
+curve_response <- function(valores){
+  
+  rcurva <- sdm::rcurve(model_list[[13]])
+  
+  rcurva_data <- rcurva$data %>%
+    dplyr::mutate(variable = variable %>% forcats::fct_relevel(var_imp_df$variables %>%
+                                                                 unique() %>% 
+                                                                 as.character()),
+                  modelo = paste0("modelo ", valores))
+  
+  assign(paste0("rcurva_modelo_", valores), rcurva_data, env = globalenv())
+  
+}
+
+purrr::walk(valores, curve_response)
+
+rcurva_df <- dplyr::bind_rows(rcurva_modelo_13, 
+                              rcurva_modelo_14,
+                              rcurva_modelo_5,
+                              rcurva_modelo_25,
+                              rcurva_modelo_26) %>% 
+  dplyr::mutate(modelo = modelo %>% factor(levels = paste0("modelo ", valores)),
+                variable = dplyr::case_when(variable == "Inclinação" ~ "Slope",
+                                             variable == "Bio9" ~ "Bio09",
+                                             .default = variable),
+                variable = variable %>% forcats::fct_relevel(c("Bio14", "Bio19", "Bio09", "EVI", "Slope", "Bio13", "Bio16") %>% rev()),
+                Response = Response %>% round(3))
+
+rcurva_df
+
+rcurva_df %>%
+  dplyr::mutate(variable = variable %>% forcats::fct_relevel(var_imp_df$variables %>%
+                                                                 unique() %>% 
+                                                                 as.character())) %>% 
+  ggplot(aes(Value, Response)) +
+  geom_line(linewidth = 0.5, color = "blue") +
+  geom_ribbon(aes(ymin = lower, ymax = upper), color = "transparent", fill = "blue", alpha = 0.5) +
+  labs(x = "Predictor value",
+       y = "Model response") +
+  facet_wrap(~variable, nrow = 2, scales = "free_x") +
+  theme(plot.title = ggtext::element_markdown(color = "black", size = 15, hjust = 0.5),
+          axis.text = element_text(color = "black", size = 10),
+          axis.title = element_text(color = "black", size = 10),
+          panel.grid = element_line(color = "grey75", linetype = "dashed", linewidth = 0.7),
+          panel.grid.minor = element_blank(),
+          axis.line = element_blank(),
+          plot.background = element_rect(fill = "white", color = "white"),
+          panel.background = element_rect(fill = "white"),
+          panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.5),
+          legend.key = element_rect(color = "white", fill = "white"),
+          legend.position = "bottom",
+          strip.background = element_rect(colour = "black", fill = "gray90"),
+          strip.text.x = element_text(size = 13))
+
+ggsave(filename = "curva_resposta2.png", height = 10, width = 12)
+```
+
+## Unificando Importância das variáveis e curva de resposta
+
+```{r, fig.height=8, fig.width=10}
+g_var_1 <- var_imp_df %>% 
+  dplyr::mutate(corTest = corTest %>% round(3),
+                modelo = dplyr::case_when(modelo %>% stringr::str_detect("13") == TRUE ~ "1st best model",
+                                          modelo %>% stringr::str_detect("14") == TRUE ~ "2nd best model",
+                                          modelo %>% stringr::str_detect("o 5") == TRUE ~ "3rd best model",
+                                          modelo %>% stringr::str_detect("25") == TRUE ~ "4th best model",
+                                          modelo %>% stringr::str_detect("26") == TRUE ~ "5th best model")) %>% 
+  ggplot(aes(corTest, variables)) +
+  geom_col(color = "black", fill = "grey65") +
+  geom_label(aes(corTest, variables, label = corTest), fill = "grey65") +
+  labs(y = "Predictors",
+       x = "Model response") +
+  scale_x_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) +
+  facet_wrap(~ modelo) +
+  theme(plot.title = ggtext::element_markdown(color = "black", size = 15, hjust = 0.5),
+          axis.text = element_text(color = "black", size = 12),
+          axis.title = element_text(color = "black", size = 15),
+          panel.grid = element_line(color = "grey75", linetype = "dashed", linewidth = 0.7),
+          panel.grid.minor = element_blank(),
+          axis.line = element_blank(),
+          plot.background = element_rect(fill = "white", color = "white"),
+          panel.background = element_rect(fill = "white"),
+          panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.5),
+          legend.key = element_rect(color = "white", fill = "white"),
+          legend.position = "bottom",
+          strip.background = element_rect(colour = "black", fill = "gray90"),
+          strip.text.x = element_text(size = 13))
+
+g_var_2 <- rcurva_df %>%
+  dplyr::mutate(variable = variable %>% forcats::fct_relevel(var_imp_df$variables %>%
+                                                                 unique() %>% 
+                                                                 as.character())) %>% 
+  ggplot(aes(Value, Response)) +
+  geom_line(linewidth = 0.5, color = "blue") +
+  geom_ribbon(aes(ymin = lower, ymax = upper), color = "transparent", fill = "blue", alpha = 0.5) +
+  labs(x = "Predictor value",
+       y = "Model response") +
+  facet_wrap(~variable, nrow = 2, scales = "free_x") +
+  theme(plot.title = ggtext::element_markdown(color = "black", size = 15, hjust = 0.5),
+          axis.text = element_text(color = "black", size = 10),
+          axis.title = element_text(color = "black", size = 10),
+          panel.grid = element_line(color = "grey75", linetype = "dashed", linewidth = 0.7),
+          panel.grid.minor = element_blank(),
+          axis.line = element_blank(),
+          plot.background = element_rect(fill = "white", color = "white"),
+          panel.background = element_rect(fill = "white"),
+          panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.5),
+          legend.key = element_rect(color = "white", fill = "white"),
+          legend.position = "bottom",
+          strip.background = element_rect(colour = "black", fill = "gray90"),
+          strip.text.x = element_text(size = 13))
+
+g_var_1 + g_var_2 + patchwork::plot_layout(ncol = 1) + plot_annotation(tag_levels = 'a') & theme(plot.tag = element_text(size = 30, face = "bold"))
+
+ggsave(filename = "vars_unidos.png", height = 10, width = 12)
+```
+
+## Comparação com o poligono da IUCN e Outros métodos
+
+### Criando o poligono do modelo
+
+#### Criando diferentes modelos
+
+```{r, fig.height=8, fig.width=10}
+for(i in c(0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9)){
+  
+  a <- ensembled %>%
+    as.data.frame(xy = TRUE) %>%
+    na.omit() %>%
+    dplyr::filter(layer >= i) %>%
+    rasterFromXYZ(crs = estados_nordeste %>% sf::st_crs()) %>%
+    rasterToPolygons() %>%
+    sf::st_as_sf(crs = estados_nordeste %>% sf::st_crs()) %>%
+    sf::st_union()
+  
+  
+  b <- sf::st_sf(geometry = a, crs = estados_nordeste %>% sf::st_crs()) %>% 
+    dplyr::mutate(DN = 1)
+  
+  stg <- stringr::str_glue("poligono: {i}") %>% message()
+  
+  stg %>% print()
+  
+  b %>% print()
+  
+  c <- b %>% 
+  ggplot() +
+  geom_sf(color = "blue", fill = "blue") +
+  labs(title = stringr::str_glue("modelo com {i}")) +
+  theme_minimal() 
+  
+  c %>% print()
+  
+  assign(paste0("modelo_", i), b)
+  
+}
+```
+
+#### Testando qual modelo abriga mais registros
+
+```{r}
+registros <- read_csv("thinned_data_thin1_new_new_new_new_new.csv") %>% 
+  dplyr::select(where(is.numeric)) %>% 
+  dplyr::mutate(lon = LONG,
+                lat = LAT) %>% 
+  dplyr::select(c(3:4))
+
+registros
+
+registros_sf <- registros %>% 
+  sf::st_as_sf(coords = c("lon", "lat"), crs = estados_nordeste %>% sf::st_crs())
+
+registros_sf %>% 
+  ggplot() +
+  geom_sf()
+
+lista <- ls(pattern = "modelo_0") %>% 
+  lapply(get)
+
+names(lista) <- paste0("modelo_", seq(60, 90, 5))
+
+for(i in lista %>% seq_along()){
+  
+  a <- sf::st_join(registros_sf, lista[[i]], join = st_within)
+  
+  b <- registros[is.na(a$DN), ]
+  
+  stringr::str_glue("registros para o modelo {i}")
+  
+  b %>% print()
+  
+  nomes <- lista[i] %>% names()
+  
+  nomes %>% print()
+  
+  assign(paste0(nomes, "%"), b)
+  
+}
+
+```
+
+#### Tratando e unidicando os dados dos registros para todos os thresholds
+
+```{r}
+lista2 <- ls(pattern = "%") %>% 
+  lapply(get)
+
+names(lista2) <- seq(60, 90, 5)
+
+for(i in lista2 %>% seq_along()){
+  
+  nomes <- lista2[i] %>% names()
+  
+  a <- registros %>% 
+    mutate(`Inside the model polygon` = dplyr::case_when(lon %in% lista2[[i]]$lon & lat %in% lista2[[i]]$lat ~ "No",
+                                                         .default = "Yes"),
+         modelo = paste0("≥ ", nomes, "%"))
+  
+  a %>% print()
+  
+  assign(paste0("registro_", nomes), a)
+  
+}
+
+pontos <- ls(pattern = "registro_") %>% 
+  lapply(get) %>% 
+  dplyr::bind_rows()
+
+pontos
+```
+
+#### Tratando e unificando os modelos para os 5 threshold
+
+```{r}
+modelos <- ls(pattern = "modelo_0") %>% 
+  lapply(get) %>% 
+  dplyr::bind_rows() %>% 
+  dplyr::mutate(modelo = paste0("≥ ", seq(60, 90, 5), "%"))
+
+modelos
+```
+
+#### Visualizando
+
+```{r}
+modelos %>% 
+  ggplot() +
+  geom_sf(data = estados_brasil, color = "black") +
+  geom_sf(data = estados_nordeste, fill = "white", color = "black", linewidth = 0.5) +
+  geom_sf(aes(color = "Model Suitability", fill = "Model Suitability"), alpha = 0.3) +
+  geom_sf(data = ma_tratado, aes(color = "Atlantic Forest", fill = "Atlantic Forest"), alpha = 0, linewidth = 0.75) +
+  scale_color_manual(values = c("darkgreen", "orangered")) +
+  scale_fill_manual(values = c("transparent", "orangered")) +
+  coord_sf(xlim = c(-48.5, -34.9), ylim = c(-18, -1)) +
+  labs(x = NULL,
+       y = NULL,
+       colour = NULL,
+       fill = NULL) +
+  scale_x_continuous(breaks = seq(-48, -35, 6)) +
+  ggnewscale::new_scale_fill() +
+  geom_point(data = pontos, aes(lon, lat, fill = `Inside the model polygon`), shape = 21, color = "black", size = 2) +
+  facet_wrap(~modelo) +
+  scale_fill_manual(values = c("blue", "yellow")) +
+  guides(color = guide_legend(title.position = "top", title.hjust = 0.5),
+         fill = guide_legend(title.position = "top", title.hjust = 0.5)) +
+  theme(plot.title = ggtext::element_markdown(color = "black", size = 15, hjust = 0.5),
+          axis.text = element_text(color = "black", size = 12),
+          axis.title = element_text(color = "black", size = 10),
+          panel.grid = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.ontop = T,
+          axis.line = element_blank(),
+          plot.background = element_rect(fill = "white", color = "white"),
+          panel.background = element_rect(color = "black", fill = NA),
+          panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.45),
+          legend.key = element_rect(color = "transparent", fill = "transparent"),
+          legend.title = element_text(size = 15, color = "black"),
+          legend.text = element_text(size = 12, color = "black"),
+          legend.position = c(0.9, 0.1),
+          legend.justification = c(1, 0),
+          strip.background = element_rect(colour = "black", fill = "gray90"),
+          strip.text.x = element_text(size = 13))
+
+ggsave(filename = "modelos_adequabilidade.png", height = 10, width = 12)
+```
+
+### poligono da IUCN 
+
+#### Importando
+
+```{r}
+iucn <- sf::read_sf("iucn.shp")
+
+iucn 
+
+iucn %>% 
+  ggplot() +
+  geom_sf(color = "black")
+```
+
+#### Recortando
+
+```{r}
+st_crs(iucn) <- sf::st_crs(nordeste_sf)
+
+poligono_iucn <- sf::st_intersection(iucn, nordeste_sf)
+
+sf::st_crs(poligono_iucn) <- sf::st_crs(nordeste_sf)
+
+poligono_iucn 
+
+poligono_iucn %>% 
+  ggplot() +
+  geom_sf(color = "black")
+```
+
+### Calculando a área de poligono 
+
+#### poligono do modelo
+
+```{r}
+poligono_modelo <- modelo_0.6
+
+area_modelo <- sf::st_area(poligono_modelo) / 1000000 # em Km2
+
+area_modelo
+```
+
+#### poligono da IUCN
+
+```{r}
+area_iucn <- sf::st_area(poligono_iucn) / 1000000 # em Km²
+
+area_iucn
+```
+
+### Mínimo polígono convexo com os dados de registro
+
+```{r}
+poligono_convexo <- allobates_thin_df %>% 
+  sf::st_as_sf(coords = c("lon", "lat"), crs = poligono_iucn %>% sf::st_crs()) %>% 
+  sf::st_union() %>% 
+  sf::st_convex_hull()
+
+poligono_convexo
+
+poligono_convexo %>% sf::st_area() / 1000000
+
+poligono_convexo %>% 
+  ggplot() +
+  geom_sf(color = "black")
+
+intersectio_conv_model <- poligono_modelo %>% 
+  sf::st_intersection(poligono_convexo)
+
+intersectio_conv_model %>% 
+  ggplot() +
+  geom_sf(color = "black")
+
+intersectio_conv_model %>% sf::st_area() / 1000000
+```
+
+### ggplot
+
+#### Inset map
+
+```{r}
+inset_map_iucn <- ggplot() +
+  geom_sf(data = continentes, color = "black", fill = "gray40") +
+  geom_sf(data = estados_brasil, color = "black") +
+  geom_sf(data = estados_nordeste, color = "black", fill = "white", linewidth = 0.5) +
+  geom_sf(data = poligono_iucn, aes(fill = "IUCN polygon", color = "IUCN polygon")) +
+  geom_sf(data = poligono_modelo, aes(fill = "Model polygon", color = "Model polygon"), alpha = 0.4) +
+  geom_sf(data = poligono_iucn, color = "darkviolet", fill = NA) +
+  scale_fill_manual(values = c("IUCN polygon" = "transparent",
+                               "Model polygon" = "yellow")) +
+  scale_color_manual(values = c("IUCN polygon" = "darkviolet",
+                                "Model polygon" = "orangered")) +
+  labs(fill = NULL,
+       color = NULL) +
+  geom_rect(aes(xmin = -34, xmax = -49, ymin = -18.5, ymax = -1), color = "red", fill = "red", alpha = 0.4, size = 0.85) +
+  coord_sf(xlim = c(-80, -35), ylim = c(-55, 12)) +
+  theme(panel.background = element_rect(fill = NA, color = "black"), 
+        plot.background = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        legend.position = "none")
+
+inset_map_iucn
+```
+
+#### Analisando se há contenção
+
+```{r, fig.height=8, fig.width=10}
+sf::st_crs(poligono_iucn) <- sf::st_crs(poligono_modelo)
+
+sf::st_within(poligono_modelo, poligono_iucn) 
+
+gg_iucn <- ggplot() + 
+  geom_sf(data = estados_brasil, color = "black") +
+  geom_sf(data = estados_nordeste, color = "black", fill = "white", linewidth = 0.5) +
+  geom_sf(data = poligono_iucn, aes(fill = "IUCN polygon", color = "IUCN polygon"), linewidth = 1) +
+  geom_sf(data = poligono_modelo, aes(fill = "Model polygon", color = "Model polygon"), alpha = 0.4) +
+  geom_sf(data = poligono_iucn, color = "darkviolet", fill = NA, linewidth = 1) +
+  ggsflabel::geom_sf_label_repel(data = estados_brasil %>% 
+                                   dplyr::filter(name_region == "Nordeste") %>% 
+                                   dplyr::mutate(name_state = name_state %>% stringr::str_replace_all(c("Do" = "do", "De" = "de"))),
+                                 aes(label = name_state),
+                                 nudge_x = -2,
+                                 color = "black",
+                                 size = 3) +
+  scale_fill_manual(values = c("IUCN polygon" = "transparent",
+                               "Model polygon" = "yellow"),
+                    breaks = c("IUCN polygon", "Model polygon")) +
+  scale_color_manual(values = c("IUCN polygon" = "darkviolet",
+                                "Model polygon" = "orangered"),
+                    breaks = c("IUCN polygon", "Model polygon")) +
+  labs(fill = NULL,
+       color = NULL) +
+  coord_sf(xlim = c(-48.75, -32.375), ylim = c(-18.33333, -1.041667)) +
+  annotation_scale(location = "br", height = unit(0.3,"cm"), bar_cols = c("black", "white")) +
+  theme(plot.title = ggtext::element_markdown(color = "black", size = 15, hjust = 0.5),
+          axis.text = element_text(color = "black", size = 12),
+          axis.title = element_text(color = "black", size = 10),
+          panel.grid = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.ontop = T,
+          axis.line = element_blank(),
+          plot.background = element_rect(fill = "white", color = "white"),
+          panel.background = element_rect(color = "black", fill = NA),
+          panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.45),
+          legend.key = element_rect(color = "white", fill = "white"),
+          legend.title = element_text(hjust = 0.5),
+          legend.text = element_text(size = 12, color = "black"),
+          legend.position = c(0.925, 0.1),
+          legend.justification = c(1, 0),
+          strip.background = element_rect(colour = "black", fill = "gray90"),
+          strip.text.x = element_text(size = 13))
+
+gg_iucn %>% 
+  cowplot::ggdraw() +
+  cowplot::draw_plot(inset_map_iucn,
+                     x = 0.6565,
+                     y = 0.7,
+                     width = 0.3,
+                     height = 0.3)
+
+ggsave(filename = "diferencas_poligonos.png", height = 8, width = 10)
+```
+
+
+### Diferença entre essas áreas
+
+```{r}
+area_iucn > area_modelo
+
+area_diferença <- 100 - ((area_modelo * 100) / area_iucn) %>% as.numeric() # Subtrair por 100 para calcular a redução
+
+area_diferença 
+```
+
+### Calculando o interseção 
+
+```{r}
+poligono_intersec <- sf::st_intersection(poligono_iucn, poligono_modelo)
+
+poligono_intersec 
+
+poligono_intersec %>% 
+  ggplot() +
+  geom_sf(color = "black")
+
+area_intersec <- poligono_intersec %>% sf::st_area() / 1000000 # em Km²
+
+area_intersec
+
+(area_intersec * 100) / area_modelo 
+
+(area_intersec * 100) / area_iucn 
+```
+
+## Área de vida
+
+### Criando o Shapefile da área de vida
+
+```{r}
+allobates_df <- allobates_tratado %>%
+  dplyr::select(2:3)
+
+# Criando um objeto SpatialPointsDataFrame
+coordinates(allobates_df) <- ~LONG + LAT
+
+crs_allobates <- nordeste_sf %>% sf::st_crs()
+
+proj4string(allobates_df) <- CRS("+proj=longlat +datum=WGS84")
+
+class(allobates_df)
+
+kde_result <- kernelUD(allobates_df, h = "href")
+
+kde_use_100 <- getverticeshr(kde_result, 99)
+
+kde_use_100_sf <- kde_use_100 %>%
+  sf::st_as_sf()
+
+ggplot() +
+  geom_sf(data = estados_nordeste) +
+  geom_point(data = allobates_tratado, aes(LONG, LAT)) +
+  geom_sf(data = kde_use_100_sf, fill = "transparent")
+```
+
+### Recortando a intersecção para o Nordeste
+
+```{r}
+kde_use_100_sf <- kde_use_100_sf %>% 
+  sf::st_transform(crs = nordeste_sf %>% sf::st_crs()) %>% 
+  sf::st_make_valid()
+
+kde_use_100_sf_ne <- kde_use_100_sf %>% 
+  sf::st_intersection(nordeste_sf)
+
+kde_use_100_sf_ne
+
+kde_use_100_sf_ne %>% sf::st_area() / 1000000
+
+kde_use_100_sf_ne %>% 
+  ggplot() +
+  geom_sf()
+```
+
+### Mapa final
+
+#### Kernel
+
+```{r}
+inset_map_kernel <- ggplot() +
+  geom_sf(data = continentes, color = "black", fill = "gray40") +
+  geom_sf(data = estados_brasil, color = "black") +
+  geom_sf(data = estados_nordeste, color = "black", fill = "white", linewidth = 0.5) +
+  geom_sf(data = poligono_modelo, aes(fill = "Model polygon", color = "Model polygon"), alpha = 0.4) +
+  geom_sf(data = kde_use_100_sf_ne, aes(color = "Home Range Kernel", fill = "Home Range Kernel"), linewidth = 1) +
+  geom_point(data = allobates_tratado, aes(LONG, LAT, color = "Points of Occurrence", fill = "Points of Occurrence"), shape = 21) +
+  scale_fill_manual(values = c("Home Range Kernel" = "transparent",
+                               "Points of Occurrence" = "gold",
+                               "Model polygon" = "yellow")) +
+  scale_color_manual(values = c("Home Range Kernel" = "darkviolet",
+                                "Points of Occurrence" = "black",
+                                "Model polygon" = "orangered")) +
+  labs(fill = NULL,
+       color = NULL) +
+  geom_rect(aes(xmin = -34, xmax = -49, ymin = -18.5, ymax = -1), color = "red", fill = "red", alpha = 0.4, size = 0.85) +
+  coord_sf(xlim = c(-80, -35), ylim = c(-55, 12)) +
+  theme(panel.background = element_rect(fill = NA, color = "black"), 
+        plot.background = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        legend.position = "none")
+
+inset_map_kernel
+
+gg_kernel <- ggplot() +
+  geom_sf(data = continentes, color = "black", fill = "gray40") +
+  geom_sf(data = estados_brasil, color = "black") +
+  geom_sf(data = estados_nordeste, color = "black", fill = "white", linewidth = 0.5) +
+  geom_sf(data = poligono_modelo, aes(fill = "Model polygon", color = "Model polygon"), alpha = 0.4) +
+  geom_sf(data = kde_use_100_sf_ne, aes(color = "Home Range Kernel", fill = "Home Range Kernel"), linewidth = 1) +
+  geom_point(data = allobates_tratado, aes(LONG, LAT, color = "Points of Occurrence", fill = "Points of Occurrence"), size = 2.5, shape = 21) +
+  scale_fill_manual(values = c("Home Range Kernel" = "transparent",
+                               "Points of Occurrence" = "gold",
+                               "Model polygon" = "yellow"),
+                    breaks = c("Home Range Kernel", "Minimal Convex polygon", "Model polygon", "Points of Occurrence")) +
+  scale_color_manual(values = c("Home Range Kernel" = "darkviolet",
+                                "Points of Occurrence" = "black",
+                                "Model polygon" = "orangered"),
+                    breaks = c("Home Range Kernel", "Model polygon", "Points of Occurrence")) +
+  labs(x = NULL,
+       y = NULL,
+       fill = NULL,
+       color = NULL) +
+  ggsflabel::geom_sf_label_repel(data = estados_brasil %>% 
+                                   dplyr::filter(name_region == "Nordeste") %>% 
+                                   dplyr::mutate(name_state = name_state %>% stringr::str_replace_all(c("Do" = "do", "De" = "de"))),
+                                 aes(label = name_state),
+                                 nudge_x = -2,
+                                 color = "black",
+                                 size = 3) +
+  coord_sf(xlim = c(-48.75, -32.375), ylim = c(-18.33333, -1.041667)) +
+  annotation_scale(location = "br", height = unit(0.3,"cm"), bar_cols = c("black", "white")) +
+  theme(plot.title = ggtext::element_markdown(color = "black", size = 15, hjust = 0.5),
+          axis.text = element_text(color = "black", size = 12),
+          axis.title = element_text(color = "black", size = 10),
+          panel.grid = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.ontop = T,
+          axis.line = element_blank(),
+          plot.background = element_rect(fill = "white", color = "white"),
+          panel.background = element_rect(color = "black", fill = NA),
+          panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.45),
+          legend.key = element_rect(color = "white", fill = "white"),
+          legend.title = element_text(hjust = 0.5),
+          legend.text = element_text(size = 12, color = "black"),
+          legend.position = c(0.975, 0.1),
+          legend.justification = c(1, 0),
+          strip.background = element_rect(colour = "black", fill = "gray90"),
+          strip.text.x = element_text(size = 13))
+
+gg_kernel %>% 
+  cowplot::ggdraw() +
+  cowplot::draw_plot(inset_map_kernel,
+                     x = 0.6565,
+                     y = 0.7,
+                     width = 0.3,
+                     height = 0.3)
+
+ggsave(filename = "diferencas_kernel.png", height = 8, width = 10)
+```
+
+#### Mínimo polígono convexo
+
+```{r}
+inset_map_polcon <- ggplot() +
+  geom_sf(data = continentes, color = "black", fill = "gray40") +
+  geom_sf(data = estados_brasil, color = "black") +
+  geom_sf(data = estados_nordeste, color = "black", fill = "white", linewidth = 0.5) +
+  geom_sf(data = poligono_modelo, aes(fill = "Model polygon", color = "Model polygon"), alpha = 0.4) +
+  geom_sf(data = poligono_convexo, aes(color = "Minimal Convex polygon", fill = "Minimal Convex polygon"), linewidth = 1) +
+  geom_point(data = allobates_tratado, aes(LONG, LAT, color = "Points of Occurrence", fill = "Points of Occurrence"), shape = 21) +
+  scale_fill_manual(values = c("Minimal Convex polygon" = "transparent",
+                               "Points of Occurrence" = "gold",
+                               "Model polygon" = "yellow")) +
+  scale_color_manual(values = c("Minimal Convex polygon" = "darkgreen",
+                                "Points of Occurrence" = "black",
+                                "Model polygon" = "orangered")) +
+  labs(fill = NULL,
+       color = NULL) +
+  geom_rect(aes(xmin = -34, xmax = -49, ymin = -18.5, ymax = -1), color = "red", fill = "red", alpha = 0.4, size = 0.85) +
+  coord_sf(xlim = c(-80, -35), ylim = c(-55, 12)) +
+  theme(panel.background = element_rect(fill = NA, color = "black"), 
+        plot.background = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        legend.position = "none")
+
+inset_map_polcon
+
+gg_polcon <- ggplot() +
+  geom_sf(data = continentes, color = "black", fill = "gray40") +
+  geom_sf(data = estados_brasil, color = "black") +
+  geom_sf(data = estados_nordeste, color = "black", fill = "white", linewidth = 0.5) +
+  geom_sf(data = poligono_modelo, aes(fill = "Model polygon", color = "Model polygon"), alpha = 0.4) +
+  geom_sf(data = poligono_convexo, aes(color = "Minimal Convex polygon", fill = "Minimal Convex polygon"), linewidth = 1) +
+  geom_point(data = allobates_tratado, aes(LONG, LAT, color = "Points of Occurrence", fill = "Points of Occurrence"), size = 2.5, shape = 21) +
+  scale_fill_manual(values = c("Minimal Convex polygon" = "transparent",
+                               "Points of Occurrence" = "gold",
+                               "Model polygon" = "yellow"),
+                    breaks = c("Home Range Kernel", "Minimal Convex polygon", "Model polygon", "Points of Occurrence")) +
+  scale_color_manual(values = c("Minimal Convex polygon" = "darkgreen",
+                                "Points of Occurrence" = "black",
+                                "Model polygon" = "orangered"),
+                    breaks = c("Minimal Convex polygon", "Model polygon", "Points of Occurrence")) +
+  labs(x = NULL,
+       y = NULL,
+       fill = NULL,
+       color = NULL) +
+  ggsflabel::geom_sf_label_repel(data = estados_brasil %>% 
+                                   dplyr::filter(name_region == "Nordeste") %>% 
+                                   dplyr::mutate(name_state = name_state %>% stringr::str_replace_all(c("Do" = "do", "De" = "de"))),
+                                 aes(label = name_state),
+                                 nudge_x = -2,
+                                 color = "black",
+                                 size = 3) +
+  coord_sf(xlim = c(-48.75, -32.375), ylim = c(-18.33333, -1.041667)) +
+  annotation_scale(location = "br", height = unit(0.3,"cm"), bar_cols = c("black", "white")) +
+  theme(plot.title = ggtext::element_markdown(color = "black", size = 15, hjust = 0.5),
+          axis.text = element_text(color = "black", size = 12),
+          axis.title = element_text(color = "black", size = 10),
+          panel.grid = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.ontop = T,
+          axis.line = element_blank(),
+          plot.background = element_rect(fill = "white", color = "white"),
+          panel.background = element_rect(color = "black", fill = NA),
+          panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.45),
+          legend.key = element_rect(color = "white", fill = "white"),
+          legend.title = element_text(hjust = 0.5),
+          legend.text = element_text(size = 12, color = "black"),
+          legend.position = c(0.975, 0.1),
+          legend.justification = c(1, 0),
+          strip.background = element_rect(colour = "black", fill = "gray90"),
+          strip.text.x = element_text(size = 13))
+
+gg_polcon %>% 
+  cowplot::ggdraw() +
+  cowplot::draw_plot(inset_map_polcon,
+                     x = 0.6565,
+                     y = 0.7,
+                     width = 0.3,
+                     height = 0.3)
+
+ggsave(filename = "diferencas_poligonoconvexo.png", height = 8, width = 10)
+```
+
+## Comparação com as únidades de conservação
+
+### Tratamento 
+
+#### Tratamento do CRS: uc x ma
+
+```{r}
+sf::st_crs(uc) <- sf::st_crs(ma)
+```
+
+#### Mata Atlântica
+
+```{r}
+ma_tratado <- sf::st_intersection(ma, nordeste_sf)
+
+ma_tratado
+
+ma_tratado %>% 
+  ggplot() +
+  geom_sf(color = "black")
+
+ma_tratado %>% sf::st_area() / 1000000
+```
+
+#### Unidades de conservação
+
+```{r}
+uc_tratado <- sf::st_intersection(uc, ma_tratado)
+
+uc_tratado <- uc_tratado %>% sf::st_union() %>% sf::st_make_valid() %>% sf::st_as_sf()
+
+uc_tratado
+
+uc_tratado %>% sf::st_area() / 1000000
+
+uc_tratado %>% 
+  ggplot() +
+  geom_sf(color = "black")
+```
+
+#### Tratando os CRS: uc_tratado x poligono_modelo
+
+```{r}
+sf::st_crs(uc_tratado) <- sf::st_crs(poligono_modelo)
+```
+
+### Comparando a % de intersecção 
+
+#### Criando a intersecção
+
+```{r}
+uc_int_modelo <- sf::st_intersection(uc_tratado, poligono_modelo)
+
+uc_int_modelo <- uc_int_modelo %>% sf::st_union() %>% sf::st_make_valid() %>% sf::st_as_sf()
+
+uc_int_modelo
+
+uc_int_modelo %>% 
+  ggplot() +
+  geom_sf(color = "black")
+```
+
+#### Calculando a área da intersecção
+
+```{r}
+uc_int_modelo_area <- uc_int_modelo %>% sf::st_area() / 1000000 # para estar em Km²
+
+uc_int_modelo_area
+```
+
+#### Calculando a % de área que o poligono do modelo está nas unidades de conservação
+
+```{r}
+(uc_int_modelo_area * 100) / area_modelo
+```
+
+#### Calculando a % de área que as unidades de conservação estão no modelo
+
+```{r}
+(uc_int_modelo_area * 100) / (uc_tratado %>% sf::st_area() / 1000000)
+```
+
+#### Inset map
+
+```{r}
+inset_map_uc <- ggplot() +
+  geom_sf(data = continentes, color = "black", fill = "gray40") +
+  geom_sf(data = estados_brasil, color = "black") +
+  geom_sf(data = estados_nordeste, fill = "white", color = "black") +
+  geom_sf(data = poligono_modelo, aes(fill = "Model polygon", color = "Model polygon"), alpha = 0.4) +
+  geom_sf(data = uc_tratado, aes(fill = "Conservation units", color = "Conservation units"), alpha = 0.3) +
+  scale_fill_manual(values = c("Conservation units" = "transparent",
+                               "Model polygon" = "yellow")) +
+  scale_color_manual(values = c("Conservation units" = "darkviolet",
+                                "Model polygon" = "orangered")) +
+  labs(fill = NULL,
+       color = NULL) +
+  geom_rect(aes(xmin = -34, xmax = -49, ymin = -18.5, ymax = -1), color = "red", fill = "red", alpha = 0.4, size = 0.85) +
+  coord_sf(xlim = c(-80, -35), ylim = c(-55, 12)) +
+  theme(panel.background = element_rect(fill = NA, color = "black"), 
+        plot.background = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        legend.position = "none")
+
+inset_map_uc
+```
+
+### Graficando
+
+```{r, fig.height=8, fig.width=10}
+gg_uc <- ggplot() + 
+  geom_sf(data = estados_brasil, color = "black") +
+  geom_sf(data = estados_nordeste, fill = "white", color = "black", linewidth = 0.5) +
+  geom_sf(data = poligono_modelo, aes(fill = "Model polygon", color = "Model polygon"), alpha = 0.4) +
+  geom_sf(data = uc_tratado, aes(fill = "Conservation units", color = "Conservation units"), alpha = 0.4) +
+  scale_fill_manual(values = c("Conservation units" = "lightblue",
+                               "Model polygon" = "yellow")) +
+  scale_color_manual(values = c("Conservation units" = "darkviolet",
+                                "Model polygon" = "orangered")) +
+  labs(x = NULL,
+       y = NULL,
+       fill = NULL,
+       color = NULL) +
+  ggsflabel::geom_sf_label_repel(data = estados_brasil %>% 
+                                   dplyr::filter(name_region == "Nordeste") %>% 
+                                   dplyr::mutate(name_state = name_state %>% stringr::str_replace_all(c("Do" = "do", "De" = "de"))),
+                                 aes(label = name_state),
+                                 nudge_x = -2,
+                                 color = "black",
+                                 size = 3) +
+  coord_sf(xlim = c(-48.75, -32.375), ylim = c(-18.33333, -1.041667)) +
+  annotation_scale(location = "br", height = unit(0.3,"cm"), bar_cols = c("black", "white")) +
+  theme(plot.title = ggtext::element_markdown(color = "black", size = 15, hjust = 0.5),
+          axis.text = element_text(color = "black", size = 12),
+          axis.title = element_text(color = "black", size = 10),
+          panel.grid = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.ontop = T,
+          axis.line = element_blank(),
+          plot.background = element_rect(fill = "white", color = "white"),
+          panel.background = element_rect(color = "black", fill = NA),
+          panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.45),
+          legend.key = element_rect(color = "white", fill = "white"),
+          legend.title = element_text(hjust = 0.5),
+          legend.text = element_text(size = 12, color = "black"),
+          legend.position = c(0.925, 0.1),
+          legend.justification = c(1, 0),
+          strip.background = element_rect(colour = "black", fill = "gray90"),
+          strip.text.x = element_text(size = 13))
+
+gg_uc %>% 
+  cowplot::ggdraw() +
+  cowplot::draw_plot(inset_map_uc,
+                     x = 0.6565,
+                     y = 0.7,
+                     width = 0.3,
+                     height = 0.3)
+
+ggsave(filename = "diferencas_poligonos_uc.png", height = 8, width = 10)
+```
+
+# **Mapa de EVI**
+
+## Inset Map
+
+```{r}
+inset_map_evi <- ggplot() +
+  geom_sf(data = continentes, color = "black", fill = "gray40") +
+  geom_sf(data = estados_brasil, color = "black") +
+  tidyterra::geom_spatraster(data = evi_crop %>% terra::rast()) +
+  scale_fill_viridis_c(breaks = seq(-0.1, 1, 0.1),
+                       na.value = "transparent") +
+  geom_sf(data = estados_nordeste, color = "black", fill = NA) +
+  geom_sf(data = ma_tratado, color = "orangered", fill = NA, size = 1.5) +
+  geom_rect(aes(xmin = -34, xmax = -49, ymin = -18.5, ymax = -1), color = "red", fill = "red", alpha = 0.4, size = 0.85) +
+  coord_sf(xlim = c(-80, -35), ylim = c(-55, 12)) +
+  theme(panel.background = element_rect(fill = NA, color = "black"), 
+        plot.background = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        legend.position = "none")
+
+inset_map_evi
+```
+
+## Mapa composto
+
+```{r, fig.width=10, fig.height=8}
+gg_evi <- ggplot() +
+  geom_sf(data = estados_brasil, color = "black") +
+  tidyterra::geom_spatraster(data = evi_crop %>% terra::rast()) +
+  geom_sf(data = estados_nordeste, color = "black", fill = NA, linewidth = 0.5) +
+  geom_sf(data = ma_tratado, aes(color = "Atlantic Forest"), fill = NA, linewidth = 0.75) +
+  scale_fill_viridis_c(breaks = seq(-0.1, 1, 0.1),
+                       limits = c(-0.1, 1),
+                       na.value = "transparent") +
+  scale_color_manual(values = c("Atlantic Forest" = "orangered")) +
+  coord_sf(xlim = c(-48.75, -32.375), ylim = c(-18.33333, -1.041667)) +
+  labs(x = NULL,
+       y = NULL,
+       fill = "EVI",
+       colour = NULL) +
+  guides(fill = guide_colorbar(barwidth = 1.5, 
+                               barheight = 15,
+                               title.position = "top",
+                               frame.colour = "black",
+                               frame.linewidth = 1,
+                               ticks.colour = "black",
+                               ticks.linewidth = 1)) +
+  guides(color = guide_legend(title.position = "top", 
+                              title.hjust = 0.5)) +
+  ggspatial::annotation_scale(location = "br", height = unit(0.3,"cm"), bar_cols = c("black", "white")) +
+  theme(plot.title = ggtext::element_markdown(color = "black", size = 15, hjust = 0.5),
+          axis.text = element_text(color = "black", size = 12),
+          axis.title = element_text(color = "black", size = 10),
+          panel.grid = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.ontop = T,
+          axis.line = element_blank(),
+          plot.background = element_rect(fill = "white", color = "white"),
+          panel.background = element_rect(color = "black", fill = NA),
+          panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.45),
+          legend.key = element_rect(color = "white", fill = "transparent"),
+          legend.background = element_blank(),
+          legend.title = element_text(size = 15, color = "black"),
+          legend.text = element_text(size = 12, color = "black"),
+          legend.position = c(0.925, 0.05),
+          legend.justification = c(1, 0),
+          strip.background = element_rect(colour = "black", fill = "gray90"),
+          strip.text.x = element_text(size = 13))
+
+gg_evi %>% 
+  cowplot::ggdraw() +
+  cowplot::draw_plot(inset_map_evi,
+                     x = 0.6675,
+                     y = 0.7,
+                     width = 0.3,
+                     height = 0.3)
+
+ggsave("evi.png", height = 10, width = 12)
+```
+
+# **Mapa de Inclinação**
+
+## Inset map
+
+```{r}
+inset_map_alt <- ggplot() +
+  geom_sf(data = continentes, color = "black", fill = "gray40") +
+  geom_sf(data = estados_brasil, color = "black") +
+  tidyterra::geom_spatraster(data = inclinacao_crop %>% terra::rast()) +
+  scale_fill_viridis_c(breaks = seq(0, 20, 5), 
+                       limits = c(0, 20),
+                       na.value = "transparent") +
+  geom_sf(data = estados_nordeste, color = "black", fill = NA) +
+  geom_sf(data = ma_tratado, color = "orangered", fill = NA) +
+  geom_rect(aes(xmin = -34, xmax = -49, ymin = -18.5, ymax = -1), color = "red", fill = "red", alpha = 0.4, size = 0.85) +
+  coord_sf(xlim = c(-80, -35), ylim = c(-55, 12)) +
+  theme(panel.background = element_rect(fill = NA, color = "black"), 
+        plot.background = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        legend.position = "none")
+
+inset_map_alt
+```
+
+## Mapa Composto
+
+```{r, fig.width=10, fig.height=8}
+gg_inclinação <- ggplot() +
+  geom_sf(data = estados_brasil, color = "black") +
+  tidyterra::geom_spatraster(data = inclinacao_crop %>% terra::rast()) +
+  geom_sf(data = estados_nordeste, color = "black", fill = NA, linewidth = 0.5) +
+  geom_sf(data = ma_tratado, aes(color = "Atlantic Forest"), fill = NA, linewidth = 0.75) +
+  scale_fill_viridis_c(breaks = seq(0, 22, 2), 
+                       limits = c(0, 22), 
+                       na.value = "transparent") +
+  scale_color_manual(values = c("Atlantic Forest" = "orangered")) +
+  coord_sf(xlim = c(-48.75, -32.375), ylim = c(-18.33333, -1.041667)) +
+  labs(x = NULL,
+       y = NULL,
+       fill = "Terrain slope",
+       color = NULL) +
+  guides(fill = guide_colorbar(barwidth = 1.5, 
+                               barheight = 15,
+                               title.position = "top",
+                               title.vjust = 0.5,
+                               frame.colour = "black",
+                               frame.linewidth = 1,
+                               ticks.colour = "black",
+                               ticks.linewidth = 1)) +
+  guides(color = guide_legend(title.position = "top", 
+                              title.hjust = 0.5)) +
+  ggspatial::annotation_scale(location = "br", height = unit(0.3,"cm"), bar_cols = c("black", "white")) +
+  theme(plot.title = ggtext::element_markdown(color = "black", size = 15, hjust = 0.5),
+          axis.text = element_text(color = "black", size = 12),
+          axis.title = element_text(color = "black", size = 10),
+          panel.grid = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.ontop = T,
+          axis.line = element_blank(),
+          plot.background = element_rect(fill = "white", color = "white"),
+          panel.background = element_rect(color = "black", fill = NA),
+          panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.45),
+          legend.key = element_rect(color = "white", fill = "transparent"),
+          legend.background = element_blank(),
+          legend.title = element_text(hjust = 0.5, size = 15, color = "black"),
+          legend.text = element_text(size = 12, color = "black"),
+          legend.position = c(0.925, 0.05),
+          legend.justification = c(1, 0),
+          strip.background = element_rect(colour = "black", fill = "gray90"),
+          strip.text.x = element_text(size = 13))
+
+gg_inclinação %>% 
+  cowplot::ggdraw() +
+  cowplot::draw_plot(inset_map_alt,
+                     x = 0.6675,
+                     y = 0.7,
+                     width = 0.3,
+                     height = 0.3)
+
+ggsave("inclinação.png", height = 10, width = 12)
+```
+
+# **Mapa de registros**
+
+```{r}
+allobates_thinned <- readr::read_csv("thinned_data_thin1_new_new_new_new_new.csv") %>% 
+  dplyr::select(where(is.numeric)) %>% 
+  dplyr::mutate(lon = LONG,
+                lat = LAT) %>% 
+  dplyr::select(c(3:4))
+
+allobates_thinned
+
+allobates_coords <- allobates %>%
+  mutate(filtrado = if_else(paste(lon, lat) %in% 
+                              paste(allobates_thinned$lon, allobates_thinned$lat), 
+                            "Thinned", "Not Thinned"))
+
+allobates_coords
+
+inset_map_registros <- ggplot() +
+  geom_sf(data = continentes, color = "black", fill = "gray40") +
+  geom_sf(data = estados_brasil, color = "black") +
+  geom_sf(data = nordeste_sf, color = "black", fill = "white") +
+  geom_sf(data = ma_tratado, color = "darkgreen", fill = NA) +
+  scale_fill_viridis_c() +
+  geom_sf(data = estados_brasil %>% dplyr::filter(code_region == 2), color = "black", fill = NA) +
+  geom_rect(aes(xmin = -34, xmax = -49, ymin = -18.5, ymax = -1), color = "red", fill = "red", alpha = 0.4, size = 0.85) +
+  coord_sf(xlim = c(-80, -35), ylim = c(-55, 12)) +
+  theme(panel.background = element_rect(fill = NA, color = "black"), 
+        plot.background = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        legend.position = "none")
+
+mapa_registros <- ggplot() +
+  geom_sf(data = continentes, color = "black", fill = "gray40") +
+  geom_sf(data = estados_brasil, color = "black") +
+  geom_sf(data = estados_nordeste, color = "black", fill = "white", linewidth = 0.5) +
+  geom_sf(data = ma_tratado, aes(color = "Atlantic Forest"), fill = "darkgreen", linewidth = 1, alpha = 0.3) +
+  geom_point(data = allobates_coords %>% 
+               dplyr::filter(filtrado == "Not Thinned"), 
+             aes(lon, lat, fill = "Not thinned"), 
+             size = 5,
+             shape = 24, 
+             color = "black") +
+  geom_point(data = allobates_coords %>% 
+               dplyr::filter(filtrado == "Thinned"), 
+             aes(lon, lat, fill = "Thinned"), 
+             size = 2.5,
+             shape = 21, 
+             color = "black") +
+  ggsflabel::geom_sf_label_repel(data = estados_brasil %>% 
+                                   dplyr::filter(code_region == 2) %>% 
+                                   dplyr::mutate(name_state = name_state %>%
+                                                   stringr::str_replace("Do", "do")),
+                                 aes(label = name_state),
+                                 nudge_x = -2,
+                                 color = "black",
+                                 size = 3) +
+  scale_fill_manual(values = c("Not thinned" = "yellow",
+                               "Thinned" = "blue")) +
+  scale_color_manual(values = "darkgreen") +
+  labs(x = NULL,
+       y = NULL,
+       fill = NULL,
+       size = NULL,
+       colour = NULL) +
+  coord_sf(xlim = c(-48.75, -32.375), ylim = c(-18.33333, -1.041667)) +
+  ggspatial::annotation_scale(location = "br", height = unit(0.3,"cm"), bar_cols = c("black", "white")) +
+  theme(plot.title = ggtext::element_markdown(color = "black", size = 15, hjust = 0.5),
+          axis.text = element_text(color = "black", size = 12),
+          axis.title = element_text(color = "black", size = 10),
+          panel.grid = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.ontop = T,
+          axis.line = element_blank(),
+          plot.background = element_rect(fill = "white", color = "white"),
+          panel.background = element_rect(color = "black", fill = NA),
+          panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.45),
+          legend.key = element_rect(color = "white", fill = "white"),
+          legend.title = element_text(hjust = 0.5),
+          legend.text = element_text(size = 12, color = "black"),
+          legend.position = "none",
+          legend.justification = c(1, 0),
+          strip.background = element_rect(colour = "black", fill = "gray90"),
+          strip.text.x = element_text(size = 13))
+
+mapa_registros %>% 
+  cowplot::ggdraw() +
+  cowplot::draw_plot(inset_map_registros,
+                     x = 0.6669,
+                     y = 0.7,
+                     width = 0.3,
+                     height = 0.3)
+
+ggsave(filename = "registros.png", height = 10, width = 12)
+```
+
+```{r}
+allobates
+
+allobates_thinned
+
+allobates %>% 
+  dplyr::left_join(allobates_thinned %>% 
+                     dplyr::mutate(filtrado = "não"), 
+                   by = c("lon", "lat")) %>%
+  mutate(filtrado = if_else(!is.na(lon) & !is.na(lat), "sim", "não"))
+
+allobates_coords <- allobates %>%
+  mutate(filtrado = if_else(paste(lon, lat) %in% 
+                              paste(allobates_thinned$lon, allobates_thinned$lat), 
+                            "Thinned", "Not Thinned"))
+
+
+```
+
+# **Mapa da Dsitribuição de Allobates olfersioides**
+
+```{r}
+ggplot() +
+  geom_sf(data = continentes, color = "black") +
+  geom_sf(data = estados_brasil, color = "black", fill = "white", linewidth = 0.75) +
+  geom_sf(data = ma, aes(color = "Atlantic Forest Original Distribution", fill = "Atlantic Forest Original Distribution"), alpha = 0.15, linewidth = 0.75) +
+  geom_sf(data = iucn, aes(color = LEGEND, fill = LEGEND), alpha = 0.3, linewidth = 0.75) + 
+  ggsflabel::geom_sf_label_repel(data = estados_brasil %>% 
+                                   dplyr::filter(abbrev_state  %in% c("RJ", "ES", "BA", "SE", "AL", "PE", "PB", "RN")) %>% 
+                                   dplyr::mutate(name_state = name_state %>% stringr::str_replace_all(c("Do" = "do", "De" = "de"))),
+                                 aes(label = name_state),
+                                 nudge_x = -4,
+                                 color = "black",
+                                 size = 3) +
+  scale_color_manual(values = c("darkgreen", "#C8A155", "#6EBDCB"))+
+  scale_fill_manual(values = c("darkgreen", "#C8A155", "#6EBDCB")) +
+  coord_sf(xlim = c(-72.5, -36), ylim = c(4, -33)) +
+  labs(fill = NULL,
+       color = NULL,
+       x = NULL,
+       y = NULL) +
+  ggspatial::annotation_scale(location = "br", height = unit(0.3,"cm"), bar_cols = c("black", "white")) +
+  theme(plot.title = ggtext::element_markdown(color = "black", size = 15, hjust = 0.5),
+          axis.text = element_text(color = "black", size = 12),
+          axis.title = element_text(color = "black", size = 10),
+          panel.grid = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.ontop = T,
+          axis.line = element_blank(),
+          plot.background = element_rect(fill = "white", color = "white"),
+          panel.background = element_rect(color = "black", fill = NA),
+          panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.45),
+          legend.key = element_rect(color = "white", fill = "white"),
+          legend.title = element_text(hjust = 0.5),
+          legend.text = element_text(size = 12, color = "black"),
+          legend.position = "bottom",
+          strip.background = element_rect(colour = "black", fill = "gray90"),
+          strip.text.x = element_text(size = 13))
+
+ggsave(filename = "dsitribuição_allobates.png", height = 8, width = 10)
+```
+
+# **Tabela com todos os registros**
+
+## GBif
+
+### olfersioides
+
+#### Dados iniciais
+
+```{r}
+olfersioides_tab <- dismo::gbif(genus = "Allobates", species = "olfersioides*", download = TRUE, geo = TRUE, removeZeros = TRUE)
+
+olfersioides_tab <- olfersioides_tab %>% 
+  dplyr::filter(lat > -18.33) %>% 
+  dplyr::select(4, c(lat, lon, municipality)) %>% 
+  dplyr::mutate(Source = "GBIF",
+                State = adm1, 
+                Municipality = municipality) %>% 
+  dplyr::select(-c(1, 4)) %>% 
+  dplyr::relocate(Source, .after = State) %>% 
+  dplyr::relocate(Municipality, .before = Source) %>% 
+  unique()
+
+olfersioides_tab
+
+olfersioides_tab[c(3, 6), 3] <- "Alagoas"
+
+olfersioides_tab[9, 3] <- "Bahia"
+
+olfersioides_tab
+```
+
+#### Municipios
+
+```{r}
+muni <- geobr::read_municipality() %>% 
+  sf::st_make_valid()
+
+olfersioides_tab_coord <- olfersioides_tab %>% 
+  dplyr::select(lon, lat) %>% 
+  sf::st_as_sf(coords = c("lon", "lat"), crs = muni %>% sf::st_crs())
+
+olfersioides_tab_coord %>% plot()
+
+muni_olfersioides <- sf::st_join(olfersioides_tab_coord, muni, join = st_within) %>% 
+  dplyr::pull(name_muni)
+
+muni_olfersioides
+```
+
+#### Adicionando os municípios
+
+```{r}
+olfersioides_tab <- olfersioides_tab %>% 
+  dplyr::mutate(Municipality = muni_olfersioides)
+
+olfersioides_tab
+```
+
+### alagoanus
+
+```{r}
+alagoanus_tab <- dismo::gbif(genus = "Allobates", species = "alagoanus", download = TRUE, geo = TRUE, removeZeros = TRUE)
+
+alagoanus_tab <- alagoanus_tab %>% 
+  dplyr::filter(lat > -18.33) %>% 
+  dplyr::select(3, c(lat, lon, municipality)) %>% 
+  dplyr::mutate(Source = "GBIF",
+                State = adm1,
+                Municipality = municipality) %>% 
+  dplyr::select(-c(1, 4)) %>% 
+  dplyr::relocate(Source, .after = State) %>% 
+  dplyr::relocate(Municipality, .before = Source) %>% 
+  unique()
+
+alagoanus_tab
+```
+
+## Externos
+
+```{r}
+dados_externos_tab <- dados_externos %>% 
+  dplyr::mutate(State = UF,
+                Municipality = Município,
+                Source = Fonte,
+                Source =  dplyr::case_when(Source == "Registro de campo" ~ "Field Record",
+                                           Source == "CHUPE" ~ "UFPE",
+                                           Source == "Dubeux, M. J. M., et al (2020)" ~ "Dubeux et al. 2020",
+                                           Source == "DIAS, I. B., et al (2014)" ~ "Dias et al. 2014",
+                                           Source == "OLIVEIRA, P. M. A., et al (2021)" ~ "Oliveira et al. 2021",
+                                           Source == "FREITAS, M. A., et al (2019)" ~ "Freitas et al. 2019",
+                                           .default = Source)) %>% 
+  dplyr::select(-c(3:7))
+
+dados_externos_tab
+```
+
+## Dados unidos
+
+### Unificando
+
+```{r}
+uni_tab <- dplyr::bind_rows(olfersioides_tab, alagoanus_tab, dados_externos_tab)
+
+uni_tab
+```
+
+### Removendo os dados repetidos para um dataframe de "fila"
+
+```{r}
+uni_tab_unique <- uni_tab %>% 
+  dplyr::select(c(lat, lon)) %>% 
+  dplyr::mutate(ordem = 1:41) %>% 
+  dplyr::distinct(lat, lon, .keep_all = TRUE)
+
+uni_tab_unique <- uni_tab_unique[-4, ]
+
+uni_tab_unique
+```
+
+### Removendo os dados repetidos no dataframe principal
+
+```{r}
+uni_tab_filt <- uni_tab %>% 
+  dplyr::mutate(ordem = 1:40) %>% 
+  dplyr::filter(ordem %in% uni_tab_unique$ordem) %>% 
+  dplyr::select(-6)
+
+uni_tab_filt
+```
+
+### Adicionando uma variável para se foi filtrado 
+
+```{r}
+allobates_thinned <- read_csv("thinned_data_thin1_new_new_new_new_new.csv") %>% 
+  dplyr::select(where(is.numeric)) %>% 
+  dplyr::mutate(lon = LONG,
+                lat = LAT) %>% 
+  dplyr::select(c(3:4))
+
+allobates_lat <- allobates_thinned$lat
+
+allobates_lon <- allobates_thinned$lon
+
+uni_tab_filt <- uni_tab_filt %>% 
+  dplyr::mutate(Thinned = dplyr::case_when(paste(lon, lat) %in% paste(allobates_thinned$lon, allobates_thinned$lat) ~ "Yes",
+                                    .default = "No"))
+
+uni_tab_filt
+```
+
+### Adicionando uma variável para se está em alguma unidade de conservação
+
+```{r}
+uc_teste <- sf::st_intersection(uc, ma_tratado)
+
+uc_teste %>% plot()
+
+uni_tab_filt_coord <- uni_tab_filt %>% 
+  sf::st_as_sf(coords = c("lon", "lat"), crs = uc_teste %>% sf::st_crs())
+
+conservation_units_list <- sf::st_join(uni_tab_filt_coord, uc_teste, join = st_within) %>% 
+  as.data.frame() %>% 
+  dplyr::select(c(1:4), 6) %>% 
+  dplyr::mutate(`Conservation Unity` = name_conservation_unit %>% stringr::str_to_title() %>% stringr::str_replace_all(c("De" = "de", "Do" = "do", "E" = "e", "Da" = "da"))) %>% 
+  dplyr::select(-5)
+
+conservation_units_list
+
+uni_tab_filt <- uni_tab_filt %>% 
+  dplyr::mutate(`Into a Conservation Unity` = conservation_units_list$`Conservation Unity`,
+                `Into a Conservation Unity` = dplyr::case_when(`Into a Conservation Unity` %>% is.na() == TRUE ~ "No",
+                                                        .default = `Into a Conservation Unity`),
+                Municipality = Municipality %>% stringr::str_replace_all(c("De" = "de", "Do" = "do", "E" = "e", "Da" = "da")),
+                State = dplyr::case_when(State == "BA"  ~ "Bahia",
+                                         State == "SE" ~ "Sergipe",
+                                         State == "AL" ~ "Alagoas",
+                                         State == "PE" ~ "Pernambuco",
+                                         .default = State),
+                Lat = lat,
+                Lon = lon) %>% 
+  dplyr::select(-c(lat, lon)) %>% 
+  dplyr::relocate(Lat, .before = State) %>% 
+  dplyr::relocate(Lon, .before = Lat)
+
+uni_tab_filt
+
+uni_tab_filt %>% 
+  dplyr::group_by(State) %>% 
+  dplyr::summarise(n = n())
+```
+
+## Tabela flextable
+
+### Criando
+
+```{r}
+uni_tab_filt_flex <- uni_tab_filt %>% 
+  flextable::flextable() %>% 
+  flextable::align(align = "center", part = "all") %>% 
+  flextable::width(width = 1.05) %>% 
+  flextable::font(fontname = "Times New Roman", part = "all") %>% 
+  flextable::fontsize(size = 12, part = "all")
+
+uni_tab_filt_flex
+```
+
+### Salvando
+
+```{r}
+uni_tab_filt_flex %>% 
+  flextable::save_as_docx(path = "tabela_geral_apendice.docx")
+```
+
+# **Tabela de Unididades de Conservação com algum registro**
+
+## Criando a tabela flextable
+
+```{r}
+conservation_units_list_flex <- conservation_units_list %>% 
+  na.omit() %>% 
+  dplyr::mutate(State = State %>% dplyr::case_when(. == "BA" ~ "Bahia",
+                                                   . == "AL" ~ "Alagoas",
+                                                   . == "SE" ~ "Sergipe",
+                                                   . == "PE" ~ "Pernambuco",
+                                                   .default = .)) %>% 
+  flextable::flextable() %>% 
+  flextable::align(align = "center", part = "all") %>% 
+  flextable::width(width = 1.1) %>% 
+  flextable::font(fontname = "Times New Roman", part = "all") %>% 
+  flextable::fontsize(size = 12, part = "all")
+
+conservation_units_list_flex
+```
+
+## Salvando a tabela
+
+```{r}
+conservation_units_list_flex %>% 
+  flextable::save_as_docx(path = "tabela_unidades_conservação_registro.docx")
+```
+
+```{r}
+library(tidyverse)
+
+var_imp_df %>% 
+  dplyr::group_by(variables) %>% 
+  dplyr::summarise(variables_mean = corTest %>% mean() %>% round(3),
+                   variables_sd = corTest %>% sd() %>% round(3))
+```
+
